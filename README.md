@@ -26,131 +26,118 @@
 
 ---
 
-## 测试模式 / Test Modes
-
-启动后会出现交互菜单，选择测试模式：
-
-| 模式 | 时长 | 包含项目 |
-|------|------|---------|
-| **[1] 快速验机** | ~5 分钟 | 系统信息 + 硬盘 SMART |
-| **[2] 标准验机 ★ 推荐** | ~15 分钟 | 系统信息 + GPU压力测试 + 硬盘 SMART |
-| **[3] 完整验机** | ~30-40 分钟 | 系统信息 + GPU压力 + VRAM测试 + CPU压力 + 内存测试 + 硬盘 SMART |
-| **[4] 自定义** | 按选项而定 | 自选任意测试项目 |
-
-An interactive menu appears at startup — select the verification depth you need.
-
----
-
-## GUI 模式（推荐新手）
+## GUI 模式（推荐） / GUI Mode (Recommended)
 
 **双击 `run_windows_gui.bat`** 即可打开图形界面，无需命令行知识。
 
 ```
 ┌─────────────────────────────────────────────┐
 │  PC 验机工具 v2.0                            │  ← 蓝色标题栏
-│  二手电脑交易验机 · 安全开源 · 不上传数据    │
+│  安全开源 · 不联网 · 不碰个人文件            │
 ├─────────────────────────────────────────────┤
-│  √ 不联网 · 不碰个人文件 · 代码完全公开      │  ← 绿色安全标识
+│  请勾选要运行的测试项目                      │
+│  ☑ 电脑基本信息          [必选]  约1分钟    │  ← 固定勾选，不可取消
+│  ☑ 硬盘健康度检查                约1分钟    │  ← 默认勾选
+│  ☐ 显卡压力测试                  约5分钟    │
+│  ☐ 显存测试                     约10分钟    │
+│  ☐ CPU 压力测试                 约10分钟    │
+│  ☐ 内存稳定性测试                约5分钟    │
+│  ☐ 散热综合测试                 约10分钟    │
 ├─────────────────────────────────────────────┤
-│  选择测试模式                                │
-│  ○ 快速验机（约5分钟）                       │
-│  ● 标准验机（约15分钟）★ 推荐               │  ← 默认选中
-│  ○ 完整验机（约30-40分钟）                   │
-│  ○ 自定义                                    │
+│  预计总时长：约 2 分钟                       │  ← 随勾选动态更新
 ├─────────────────────────────────────────────┤
 │  [进度条]                                    │  ← 点击开始后显示
 │  实时日志输出...                             │
 ├─────────────────────────────────────────────┤
-│           [ 开始验机 ]           [ 退出 ]    │
+│    [ 开始验机 ]                    [ 退出 ] │
 └─────────────────────────────────────────────┘
 ```
+
+**使用方式：** 买家让测哪几项就勾哪几项，点"开始验机"即可。完成后按钮变为"打开结果文件夹"。
 
 **界面特点：**
 - 中文全程提示，不出现黑色命令行窗口
 - 测试在后台运行，界面始终可响应
 - 实时日志滚动显示当前进度
+- 预计时长随勾选自动计算
 - 完成后一键打开结果文件夹
-
-**打包成 EXE（可选）：** 如需分发给完全不懂电脑的用户，运行 `build_exe.ps1` 将工具打包为单个 `PC验机工具.exe`：
-
-```powershell
-# 右键 build_exe.ps1 → "用 PowerShell 运行"
-# 首次运行会自动安装 ps2exe 模块（需联网）
-# 生成 PC验机工具.exe，可单独复制给买家
-```
-
-> 注意：EXE 打包需要 ps2exe 模块（`Install-Module ps2exe`）。目标机器需 Windows 10/11 和 .NET Framework 4.5+（系统自带）。
 
 ---
 
 ## GUI Mode (Recommended for beginners)
 
-**Double-click `run_windows_gui.bat`** to open the graphical interface — no command-line knowledge needed.
+**Double-click `run_windows_gui.bat`** to open the graphical interface.
 
-The window shows:
-- Blue header with tool name and subtitle
-- Green safety badge confirming no network access
-- Radio buttons for test mode selection (Standard is pre-selected)
-- Optional custom test checkboxes (shown when "Custom" is selected)
-- Real-time log output area with progress bar (appears after clicking Start)
-- "Open Results Folder" button after completion
+The window shows a **checkbox list** of test items:
 
-**Build as EXE (optional):** Run `build_exe.ps1` to compile the GUI into a standalone `PC验机工具.exe` using ps2exe.
+| Test Item | Default | Duration |
+|-----------|---------|----------|
+| System Info (CPU/GPU/RAM/Motherboard) | Always on | ~1 min |
+| Disk Health (SMART) | Checked | ~1 min |
+| GPU Stress Test (FurMark) | Unchecked | ~5 min |
+| VRAM Test (OCCT) | Unchecked | ~10 min |
+| CPU Stress Test | Unchecked | ~10 min |
+| Memory Stability Test | Unchecked | ~5 min |
+| Thermal Stress Test (CPU+GPU combined) | Unchecked | ~10 min |
 
----
-
-## 快速开始（3步）
-
-### 第一步：下载本工具
-
-从 GitHub 页面点 **Code → Download ZIP**，解压到任意目录。
-
-### 第二步：下载测试工具
-
-将以下工具放入 `tools/` 目录（见下方下载链接表）：
-
-| 工具 | 放置路径 | 用途 |
-|------|---------|------|
-| GPU-Z.exe | `tools/GPU-Z.exe` | 显卡信息读取 |
-| cpuz_x64.exe | `tools/cpuz_x64.exe` | CPU/内存信息 |
-| HWiNFO64.exe | `tools/HWiNFO64.exe` | 传感器实时记录（温度/功耗）|
-| FurMark.exe | `tools/FurMark/FurMark.exe` | GPU 烤机压力测试 |
-| OCCT.exe | `tools/OCCT/OCCT.exe` | VRAM / CPU / 内存压力测试 |
-| DiskInfo64.exe | `tools/CrystalDiskInfo/DiskInfo64.exe` | 硬盘 SMART 详情（可选）|
-
-### 第三步：运行验机
-
-- **图形界面（推荐）：双击 `run_windows_gui.bat`**
-- **命令行模式：双击 `run_windows.bat`**（右键"以管理员身份运行"以获取完整硬件数据）
-
-验机完成后，结果保存在 `output/<时间戳>/` 目录，并自动打包为 ZIP。
+Check the tests the buyer requires, click **"开始验机"** (Start). The estimated total time updates dynamically. When finished, click **"打开结果文件夹"** (Open Results Folder).
 
 ---
 
-## Quick Start (3 Steps)
+## 命令行模式 / CLI Mode
 
-### Step 1: Download this tool
+**双击 `run_windows.bat`** 运行命令行版本（右键"以管理员身份运行"获得完整硬件数据）。
 
+命令行版本会显示交互菜单，输入编号选择测试项目（支持多选）：
+
+```
+请选择要运行的测试项目 (输入编号，多选用逗号分隔，如: 2,3,5):
+
+  [1] 电脑基本信息        (必选，自动包含)     约1分钟
+  [2] 硬盘健康度检查                          约1分钟
+  [3] 显卡压力测试 (FurMark)                  约5分钟
+  [4] 显存测试 (OCCT)                         约10分钟
+  [5] CPU 压力测试                            约10分钟
+  [6] 内存稳定性测试                           约5分钟
+  [7] 散热综合测试                            约10分钟
+
+  [A] 全选    [0] 退出
+```
+
+---
+
+## CLI Mode
+
+**Double-click `run_windows.bat`** (right-click → "Run as Administrator" for full hardware data).
+
+An interactive menu appears — enter item numbers separated by commas (e.g., `2,3,5`), or `A` to select all.
+
+---
+
+## 快速开始（3步） / Quick Start (3 Steps)
+
+### 第一步：下载本工具 / Step 1: Download this tool
+
+从 GitHub 页面点 **Code → Download ZIP**，解压到任意目录。/
 Click **Code → Download ZIP** on the GitHub page and extract to any folder.
 
-### Step 2: Download test utilities
+### 第二步：下载测试工具 / Step 2: Download test utilities
 
-Place the following tools in the `tools/` directory (download links below):
+将以下工具放入 `tools/` 目录 / Place the following tools in the `tools/` directory:
 
-| Tool | Path | Purpose |
-|------|------|---------|
-| GPU-Z.exe | `tools/GPU-Z.exe` | GPU info (model, VRAM, driver) |
-| cpuz_x64.exe | `tools/cpuz_x64.exe` | CPU / RAM info |
-| HWiNFO64.exe | `tools/HWiNFO64.exe` | Real-time sensor logging (temp, power) |
-| FurMark.exe | `tools/FurMark/FurMark.exe` | GPU stress test |
-| OCCT.exe | `tools/OCCT/OCCT.exe` | VRAM / CPU / memory stress tests |
-| DiskInfo64.exe | `tools/CrystalDiskInfo/DiskInfo64.exe` | Disk SMART detail (optional) |
+| 工具 / Tool | 放置路径 / Path | 用途 / Purpose |
+|------|------|------|
+| HWiNFO64.exe | `tools/HWiNFO64.exe` | 传感器记录 / Sensor logging |
+| FurMark.exe | `tools/FurMark/FurMark.exe` | GPU 烤机 / GPU stress test |
+| OCCT.exe | `tools/OCCT/OCCT.exe` | VRAM/CPU/内存测试 / VRAM/CPU/Memory tests |
+| DiskInfo64.exe | `tools/CrystalDiskInfo/DiskInfo64.exe` | 硬盘详情（可选）/ Disk SMART detail (optional) |
 
-### Step 3: Run verification
+### 第三步：运行验机 / Step 3: Run verification
 
-- **GUI mode (recommended): Double-click `run_windows_gui.bat`**
-- **CLI mode: Double-click `run_windows.bat`** (right-click → "Run as Administrator" for full hardware data)
+- **图形界面（推荐）：双击 `run_windows_gui.bat`** / GUI mode: double-click `run_windows_gui.bat`
+- **命令行：双击 `run_windows.bat`** / CLI mode: double-click `run_windows.bat`
 
+验机完成后，结果保存在 `output/<时间戳>/` 目录，并自动打包为 ZIP。/
 Results are saved to `output/<timestamp>/` and automatically zipped.
 
 ---
@@ -159,8 +146,6 @@ Results are saved to `output/<timestamp>/` and automatically zipped.
 
 | 工具 / Tool | 下载地址 / Download | 是否必须 / Required | 说明 / Notes |
 |------------|-------------------|-------------------|-------------|
-| GPU-Z | https://www.techpowerup.com/gpuz/ | 建议 / Recommended | 单文件 exe，免安装 / Single exe, no install |
-| CPU-Z | https://www.cpuid.com/softwares/cpu-z.html | 可选 / Optional | 下载 portable zip 版本 / Download portable zip |
 | HWiNFO64 | https://www.hwinfo.com/download/ | 建议 / Recommended | 单文件 portable 版 / Single portable exe |
 | FurMark | https://geeks3d.com/furmark/ | 建议 / Recommended | 需安装到 `tools/FurMark/` / Install to `tools/FurMark/` |
 | OCCT | https://www.ocbase.com/download | 建议 / Recommended | 需安装到 `tools/OCCT/` / Install to `tools/OCCT/` |
@@ -175,61 +160,28 @@ Results are saved to `output/<timestamp>/` and automatically zipped.
 | 文件 / File | 内容 / Content |
 |------------|--------------|
 | `system_info.txt` | 完整系统硬件信息（CPU/GPU/主板/内存）/ Full hardware info |
-| `summary.txt` | 快速摘要 / Quick summary |
 | `test_summary.txt` | 各测试步骤的通过/失败状态 / Pass/fail status per test |
-| `dxdiag_output.txt` | DirectX 诊断信息 / DirectX diagnostic info |
 | `session_transcript.log` | 完整运行日志 / Full run log |
-| `furmark_log.txt` | FurMark GPU 测试日志 / FurMark test log |
-| `occt_log.txt` | OCCT VRAM 测试日志 / OCCT VRAM test log |
+| `furmark_log.txt` | 显卡压力测试日志 / GPU stress test log |
+| `occt_log.txt` | 显存测试日志 / VRAM test log |
 | `cpu_stress_log.txt` | CPU 压力测试日志 / CPU stress test log |
 | `memory_test_log.txt` | 内存稳定性测试日志 / Memory test log |
 | `disk_health.txt` | 硬盘 SMART 健康报告 / Disk SMART health report |
-| `thermal_stress_log.txt` | 散热综合评估日志 / Thermal stress log |
+| `thermal_stress_log.txt` | 散热综合测试日志 / Thermal stress log |
 | `hwinfo_sensors.csv` | HWiNFO64 传感器时序数据（温度/功耗/频率）/ Sensor time-series data |
 | `screenshot_*.png` | 测试前后及各阶段截图 / Before/after and mid-test screenshots |
 | `../pc_check_<时间戳>.zip` | 以上所有文件的压缩包 / Archive of all above files |
 
 ---
 
-## 最简配置（只用快速验机）/ Minimal Setup
-
-如果时间有限，直接选 **[1] 快速验机**，无需任何额外工具，纯 PowerShell 即可完成。/
-If time is limited, select **[1] Quick** mode at the menu — no extra tools needed, pure PowerShell.
-
----
-
-## 完整配置（所有工具）/ Full Setup
-
-```
-tools/
-  GPU-Z.exe
-  cpuz_x64.exe
-  HWiNFO64.exe
-  FurMark/
-    FurMark.exe
-  OCCT/
-    OCCT.exe
-  CrystalDiskInfo/
-    DiskInfo64.exe
-```
-
-选 **[3] 完整验机**，约 30-40 分钟完成全面检测。/
-Select **[3] Full** mode — complete verification in ~30-40 minutes.
-
----
-
 ## 常见问题 FAQ
 
 **Q: 运行时提示"此脚本无法运行"？/ "Script cannot be run" error?**
-A: 右键 `run_windows_gui.bat`（或 `run_windows.bat`）→ "以管理员身份运行" / Right-click `run_windows_gui.bat` (or `run_windows.bat`) → "Run as Administrator"
+A: 右键 `run_windows_gui.bat`（或 `run_windows.bat`）→ "以管理员身份运行" / Right-click → "Run as Administrator"
 
 **Q: 截图是黑屏？/ Screenshots are black?**
 A: 部分系统的图形保护会阻止截图。手动截图（Win+Shift+S）保存到 `output/` 目录即可。/
 Some systems block automated screenshots. Use Win+Shift+S manually and save to `output/`.
-
-**Q: OCCT 为什么需要手动点击？/ Why does OCCT require a manual click?**
-A: OCCT 免费版不支持完整命令行自动化。脚本会引导你完成操作步骤。/
-The free version of OCCT does not support full CLI automation. The script will guide you through the steps.
 
 **Q: 没有 OCCT/FurMark 也能用吗？/ Can I run without OCCT/FurMark?**
 A: 可以。脚本有内置的 PowerShell 降级测试（CPU多线程数学循环 + 内存读写循环），功能有限但基本可用。/

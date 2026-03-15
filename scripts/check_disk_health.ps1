@@ -31,7 +31,9 @@ param(
     [string]$RepoRoot,
 
     [Parameter(Mandatory)]
-    [string]$OutputDir
+    [string]$OutputDir,
+
+    [switch]$NonInteractive
 )
 
 Set-StrictMode -Off
@@ -188,10 +190,16 @@ if ($CdiBin) {
     $ReportLines.Add("  请在 CrystalDiskInfo 界面中截图保存详细 SMART 数据")
     try {
         Start-Process -FilePath $CdiBin
-        Write-Host ""
-        Write-Host "  CrystalDiskInfo 已打开。请截图 SMART 详情后按 Enter 继续..." -ForegroundColor Yellow
-        $null = Read-Host
-        $ReportLines.Add("  (卖家已确认查看 CrystalDiskInfo)")
+        if (-not $NonInteractive) {
+            Write-Host ""
+            Write-Host "  CrystalDiskInfo 已打开。请截图 SMART 详情后按 Enter 继续..." -ForegroundColor Yellow
+            $null = Read-Host
+            $ReportLines.Add("  (卖家已确认查看 CrystalDiskInfo)")
+        } else {
+            Write-Log "CrystalDiskInfo 已启动（非交互模式，自动继续）" "INFO"
+            Start-Sleep -Seconds 5
+            $ReportLines.Add("  (非交互模式: CrystalDiskInfo 已自动启动)")
+        }
     } catch {
         Write-Log "CrystalDiskInfo 启动失败: $_" "WARN"
         $ReportLines.Add("  启动失败: $_")

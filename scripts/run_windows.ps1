@@ -5,9 +5,9 @@
     二手电脑验机工具主脚本
 
 .DESCRIPTION
-    Interactive menu to select test mode, then orchestrates the full PC
-    verification workflow:
-    1. Interactive mode selection (Quick / Standard / Full / Custom)
+    Interactive or non-interactive orchestration of the full PC verification
+    workflow:
+    1. Menu / -NonInteractive flag to select test items
     2. Create timestamped output directory
     3. Collect system information
     4. Check available tools
@@ -19,16 +19,23 @@
     SAFETY: This script only reads hardware data and runs benchmarks.
     It does NOT access personal files, upload data, or modify system settings.
 
+.PARAMETER NonInteractive
+    When set, skip all interactive menus and Read-Host prompts.
+    Use -CustomTests to specify which tests to run.
+
+.PARAMETER CustomTests
+    Comma-separated list of test identifiers:
+    "furmark", "vram", "cpu", "memory", "disk", "thermal"
+    System info always runs. Example: -CustomTests "furmark,disk,cpu"
+
 .NOTES
-    Author: pc-check-protocol
     Requires: PowerShell 5.0+, Windows 10/11
 #>
 
 param(
-    [string]$ScriptRoot = $PSScriptRoot,
+    [string]$ScriptRoot     = $PSScriptRoot,
     [switch]$NonInteractive,
-    [string]$TestMode    = "",   # "quick" | "standard" | "full" | "custom"
-    [string]$CustomTests = ""    # comma-separated: "furmark,vram,cpu,memory,disk,thermal"
+    [string]$CustomTests    = ""   # comma-separated: "furmark,vram,cpu,memory,disk,thermal"
 )
 
 Set-StrictMode -Off
@@ -49,7 +56,7 @@ if (-not (Test-Path $ConfigPath)) {
 $Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
 # ---------------------------------------------------------------------------
-# Helper functions (defined early so menu can use Write-Log)
+# Helper functions
 # ---------------------------------------------------------------------------
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -86,51 +93,8 @@ if (-not $IsAdmin) {
 }
 
 # ---------------------------------------------------------------------------
-# Interactive menu
+# Test flags
 # ---------------------------------------------------------------------------
-function Show-MainMenu {
-    Clear-Host
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host "   PC 验机工具 v2.0  (PC Check Protocol)" -ForegroundColor Cyan
-    Write-Host "   二手电脑交易验机 - 安全开源 不上传数据" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host ""
-    Write-Host "请选择测试模式:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  [1] 快速验机 (约5分钟)" -ForegroundColor Yellow
-    Write-Host "      - 系统信息收集 + 硬盘SMART健康度" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [2] 标准验机 (约15分钟)  ★ 推荐" -ForegroundColor Green
-    Write-Host "      - 系统信息 + GPU压力测试 + 硬盘SMART" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [3] 完整验机 (约30-40分钟)" -ForegroundColor Cyan
-    Write-Host "      - 系统信息 + GPU压力 + VRAM测试 + CPU压力 + 内存测试 + 硬盘SMART" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [4] 自定义" -ForegroundColor Magenta
-    Write-Host "      - 自选测试项目" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [0] 退出" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "请输入选项 (0-4): " -ForegroundColor White -NoNewline
-}
-
-function Show-CustomMenu {
-    Write-Host ""
-    Write-Host "自定义测试项目 (输入编号，多选用逗号分隔，如: 1,3,5):" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  [1] 系统信息收集        (必选，自动包含)" -ForegroundColor Gray
-    Write-Host "  [2] GPU 压力测试        (FurMark, 5分钟)" -ForegroundColor Yellow
-    Write-Host "  [3] VRAM 显存测试       (OCCT, 10分钟)" -ForegroundColor Yellow
-    Write-Host "  [4] CPU 压力测试        (OCCT CPU, 10分钟)" -ForegroundColor Cyan
-    Write-Host "  [5] 内存稳定性测试      (OCCT Memory, 5分钟)" -ForegroundColor Cyan
-    Write-Host "  [6] 硬盘 SMART 健康度   (无需额外工具)" -ForegroundColor Green
-    Write-Host "  [7] 散热综合评估        (CPU+GPU同时满载, 10分钟)" -ForegroundColor Magenta
-    Write-Host ""
-    Write-Host "请输入: " -ForegroundColor White -NoNewline
-}
-
-# Test flags: each boolean controls whether the test runs
 $RunFurmark       = $false
 $RunOcctVram      = $false
 $RunCpuStress     = $false
@@ -139,112 +103,90 @@ $RunDiskHealth    = $false
 $RunThermalStress = $false
 
 # ---------------------------------------------------------------------------
-# Non-interactive mode: parse -TestMode / -CustomTests from GUI caller
+# Non-interactive mode: parse -CustomTests directly from GUI caller
 # ---------------------------------------------------------------------------
 if ($NonInteractive) {
-    switch ($TestMode.ToLower()) {
-        "quick" {
-            $RunDiskHealth = $true
-            $MenuChoice    = "quick"
-        }
-        "full" {
+    $MenuChoice = "custom"
+    if ($CustomTests) {
+        $selections = $CustomTests.ToLower() -split "," | ForEach-Object { $_.Trim() }
+        if ($selections -contains "furmark")  { $RunFurmark       = $true }
+        if ($selections -contains "vram")     { $RunOcctVram      = $true }
+        if ($selections -contains "cpu")      { $RunCpuStress     = $true }
+        if ($selections -contains "memory")   { $RunMemoryTest    = $true }
+        if ($selections -contains "disk")     { $RunDiskHealth    = $true }
+        if ($selections -contains "thermal")  { $RunThermalStress = $true }
+    }
+    Write-Log "非交互模式: CustomTests=$CustomTests" "INFO"
+
+# ---------------------------------------------------------------------------
+# Interactive menu (CLI mode — unchanged behavior)
+# ---------------------------------------------------------------------------
+} else {
+    function Show-MainMenu {
+        Clear-Host
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor DarkCyan
+        Write-Host "   PC 验机工具 v2.0  (PC Check Protocol)" -ForegroundColor Cyan
+        Write-Host "   二手电脑交易验机 - 安全开源 不上传数据" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "请选择要运行的测试项目 (输入编号，多选用逗号分隔，如: 2,3,5):" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  [1] 电脑基本信息        (必选，自动包含)     约1分钟" -ForegroundColor Gray
+        Write-Host "  [2] 硬盘健康度检查                          约1分钟" -ForegroundColor Yellow
+        Write-Host "  [3] 显卡压力测试 (FurMark)                  约5分钟" -ForegroundColor Yellow
+        Write-Host "  [4] 显存测试 (OCCT)                         约10分钟" -ForegroundColor Cyan
+        Write-Host "  [5] CPU 压力测试                            约10分钟" -ForegroundColor Cyan
+        Write-Host "  [6] 内存稳定性测试                           约5分钟" -ForegroundColor Cyan
+        Write-Host "  [7] 散热综合测试                            约10分钟" -ForegroundColor Magenta
+        Write-Host ""
+        Write-Host "  [A] 全选    [0] 退出" -ForegroundColor White
+        Write-Host ""
+        Write-Host "请输入: " -ForegroundColor White -NoNewline
+    }
+
+    $MenuChoice = $null
+    while ($null -eq $MenuChoice) {
+        Show-MainMenu
+        $input = Read-Host
+        $trimmed = $input.Trim().ToUpper()
+
+        if ($trimmed -eq "0") {
+            Write-Host ""
+            Write-Host "已退出。" -ForegroundColor Gray
+            exit 0
+        } elseif ($trimmed -eq "A") {
             $RunFurmark       = $true
             $RunOcctVram      = $true
             $RunCpuStress     = $true
             $RunMemoryTest    = $true
             $RunDiskHealth    = $true
+            $RunThermalStress = $true
             $MenuChoice       = "full"
-        }
-        "custom" {
-            $selections = $CustomTests.ToLower() -split "," | ForEach-Object { $_.Trim() }
-            if ($selections -contains "furmark")  { $RunFurmark       = $true }
-            if ($selections -contains "vram")     { $RunOcctVram      = $true }
-            if ($selections -contains "cpu")      { $RunCpuStress     = $true }
-            if ($selections -contains "memory")   { $RunMemoryTest    = $true }
-            if ($selections -contains "disk")     { $RunDiskHealth    = $true }
-            if ($selections -contains "thermal")  { $RunThermalStress = $true }
+        } else {
+            $selections = $trimmed -split "," | ForEach-Object { $_.Trim() }
+            if ($selections -contains "2") { $RunDiskHealth    = $true }
+            if ($selections -contains "3") { $RunFurmark       = $true }
+            if ($selections -contains "4") { $RunOcctVram      = $true }
+            if ($selections -contains "5") { $RunCpuStress     = $true }
+            if ($selections -contains "6") { $RunMemoryTest    = $true }
+            if ($selections -contains "7") { $RunThermalStress = $true }
             $MenuChoice = "custom"
         }
-        default {
-            # "standard" or empty — default recommended mode
-            $RunFurmark    = $true
-            $RunDiskHealth = $true
-            $MenuChoice    = "standard"
-        }
     }
 
-    Write-Log "非交互模式: TestMode=$TestMode CustomTests=$CustomTests" "INFO"
-} else {
-    # ---------------------------------------------------------------------------
-    # Interactive menu (original behavior — unchanged)
-    # ---------------------------------------------------------------------------
-    $MenuChoice = $null
-    while ($null -eq $MenuChoice) {
-        Show-MainMenu
-        $input = Read-Host
-        switch ($input.Trim()) {
-            "0" {
-                Write-Host ""
-                Write-Host "已退出。" -ForegroundColor Gray
-                exit 0
-            }
-            "1" {
-                # Quick: system info + disk SMART
-                $RunDiskHealth    = $true
-                $MenuChoice       = "quick"
-            }
-            "2" {
-                # Standard (recommended): system info + GPU stress + disk SMART
-                $RunFurmark       = $true
-                $RunDiskHealth    = $true
-                $MenuChoice       = "standard"
-            }
-            "3" {
-                # Full: all tests
-                $RunFurmark       = $true
-                $RunOcctVram      = $true
-                $RunCpuStress     = $true
-                $RunMemoryTest    = $true
-                $RunDiskHealth    = $true
-                $MenuChoice       = "full"
-            }
-            "4" {
-                # Custom: user selects
-                Show-CustomMenu
-                $customInput = Read-Host
-                $selections = $customInput -split "," | ForEach-Object { $_.Trim() }
-                # Item 1 (system info) is always included
-                if ($selections -contains "2") { $RunFurmark       = $true }
-                if ($selections -contains "3") { $RunOcctVram      = $true }
-                if ($selections -contains "4") { $RunCpuStress     = $true }
-                if ($selections -contains "5") { $RunMemoryTest    = $true }
-                if ($selections -contains "6") { $RunDiskHealth    = $true }
-                if ($selections -contains "7") { $RunThermalStress = $true }
-                $MenuChoice = "custom"
-            }
-            default {
-                Write-Host ""
-                Write-Host "无效输入，请重新选择 (0-4)。" -ForegroundColor Red
-                Start-Sleep -Seconds 1
-            }
-        }
-    }
-}
-
-# Summary of what will run
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor DarkCyan
-Write-Host "  即将运行的测试项目:" -ForegroundColor Cyan
-Write-Host "  [必选] 系统信息收集" -ForegroundColor White
-if ($RunFurmark)       { Write-Host "  [选中] GPU 压力测试 (FurMark)"           -ForegroundColor Yellow }
-if ($RunOcctVram)      { Write-Host "  [选中] VRAM 显存测试 (OCCT)"             -ForegroundColor Yellow }
-if ($RunCpuStress)     { Write-Host "  [选中] CPU 压力测试 (OCCT CPU)"          -ForegroundColor Cyan }
-if ($RunMemoryTest)    { Write-Host "  [选中] 内存稳定性测试 (OCCT Memory)"     -ForegroundColor Cyan }
-if ($RunDiskHealth)    { Write-Host "  [选中] 硬盘 SMART 健康度"                -ForegroundColor Green }
-if ($RunThermalStress) { Write-Host "  [选中] 散热综合评估 (CPU+GPU 同时满载)"  -ForegroundColor Magenta }
-Write-Host "============================================================" -ForegroundColor DarkCyan
-Write-Host ""
-if (-not $NonInteractive) {
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host "  即将运行的测试项目:" -ForegroundColor Cyan
+    Write-Host "  [必选] 系统信息收集" -ForegroundColor White
+    if ($RunDiskHealth)    { Write-Host "  [选中] 硬盘健康度检查"                            -ForegroundColor Yellow }
+    if ($RunFurmark)       { Write-Host "  [选中] 显卡压力测试 (FurMark)"                    -ForegroundColor Yellow }
+    if ($RunOcctVram)      { Write-Host "  [选中] 显存测试 (OCCT)"                           -ForegroundColor Cyan }
+    if ($RunCpuStress)     { Write-Host "  [选中] CPU 压力测试"                              -ForegroundColor Cyan }
+    if ($RunMemoryTest)    { Write-Host "  [选中] 内存稳定性测试"                            -ForegroundColor Cyan }
+    if ($RunThermalStress) { Write-Host "  [选中] 散热综合测试 (CPU+GPU 同时满载)"           -ForegroundColor Magenta }
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host ""
     Write-Host "按 Enter 开始验机，或按 Ctrl+C 取消..." -ForegroundColor Gray
     $null = Read-Host
 }
@@ -378,7 +320,9 @@ if ($RunOcctVram) {
     Write-Section "VRAM 显存测试 (OCCT)"
     $OcctScript = Join-Path $ScriptRoot "run_occt.ps1"
     try {
-        $result = & $OcctScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_vram_duration_sec
+        $result = & $OcctScript -RepoRoot $RepoRoot -OutputDir $OutputDir `
+                      -DurationSec $Config.occt_vram_duration_sec `
+                      -NonInteractive:$NonInteractive
         $SummaryLines.Add("[结果] OCCT VRAM: $result")
     } catch {
         Write-Log "OCCT VRAM 脚本异常: $_" "ERROR"
@@ -393,7 +337,9 @@ if ($RunCpuStress) {
     Write-Section "CPU 压力测试"
     $CpuStressScript = Join-Path $ScriptRoot "run_cpu_stress.ps1"
     try {
-        $result = & $CpuStressScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_cpu_duration_sec
+        $result = & $CpuStressScript -RepoRoot $RepoRoot -OutputDir $OutputDir `
+                      -DurationSec $Config.occt_cpu_duration_sec `
+                      -NonInteractive:$NonInteractive
         $SummaryLines.Add("[结果] CPU压力测试: $result")
     } catch {
         Write-Log "CPU压力测试脚本异常: $_" "ERROR"
@@ -408,7 +354,9 @@ if ($RunMemoryTest) {
     Write-Section "内存稳定性测试"
     $MemTestScript = Join-Path $ScriptRoot "run_memory_test.ps1"
     try {
-        $result = & $MemTestScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_memory_duration_sec
+        $result = & $MemTestScript -RepoRoot $RepoRoot -OutputDir $OutputDir `
+                      -DurationSec $Config.occt_memory_duration_sec `
+                      -NonInteractive:$NonInteractive
         $SummaryLines.Add("[结果] 内存测试: $result")
     } catch {
         Write-Log "内存测试脚本异常: $_" "ERROR"
@@ -420,10 +368,11 @@ if ($RunMemoryTest) {
 # Disk SMART health check
 # ---------------------------------------------------------------------------
 if ($RunDiskHealth) {
-    Write-Section "硬盘 SMART 健康度检查"
+    Write-Section "硬盘健康度检查"
     $DiskHealthScript = Join-Path $ScriptRoot "check_disk_health.ps1"
     try {
-        $result = & $DiskHealthScript -RepoRoot $RepoRoot -OutputDir $OutputDir
+        $result = & $DiskHealthScript -RepoRoot $RepoRoot -OutputDir $OutputDir `
+                      -NonInteractive:$NonInteractive
         $SummaryLines.Add("[结果] 硬盘健康检查: $result")
     } catch {
         Write-Log "硬盘健康检查脚本异常: $_" "ERROR"
@@ -435,14 +384,16 @@ if ($RunDiskHealth) {
 # Thermal stress test (CPU + GPU simultaneous)
 # ---------------------------------------------------------------------------
 if ($RunThermalStress) {
-    Write-Section "散热综合评估 (CPU+GPU 同时满载)"
+    Write-Section "散热综合测试 (CPU+GPU 同时满载)"
     $ThermalScript = Join-Path $ScriptRoot "run_thermal_stress.ps1"
     try {
-        $result = & $ThermalScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.thermal_stress_duration_sec
-        $SummaryLines.Add("[结果] 散热综合评估: $result")
+        $result = & $ThermalScript -RepoRoot $RepoRoot -OutputDir $OutputDir `
+                      -DurationSec $Config.thermal_stress_duration_sec `
+                      -NonInteractive:$NonInteractive
+        $SummaryLines.Add("[结果] 散热综合测试: $result")
     } catch {
-        Write-Log "散热评估脚本异常: $_" "ERROR"
-        $SummaryLines.Add("[FAIL] 散热综合评估 - 脚本异常")
+        Write-Log "散热测试脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] 散热综合测试 - 脚本异常")
     }
 }
 

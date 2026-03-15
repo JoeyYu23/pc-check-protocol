@@ -8,6 +8,7 @@
     instead of the batch file. Runs tests in a background runspace
     so the UI stays responsive.
 
+    Design: checkbox-only, no mode radio buttons.
     SAFETY: No network access, no personal file access, no uploads.
 
 .PARAMETER ScriptRoot
@@ -29,11 +30,11 @@ $ErrorActionPreference = "Continue"
 # ---------------------------------------------------------------------------
 # Load WinForms assemblies
 # ---------------------------------------------------------------------------
-[System.Windows.Forms.Application]::EnableVisualStyles()
-[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
-
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
 # ---------------------------------------------------------------------------
 # Resolve paths
@@ -48,26 +49,39 @@ $RepoRoot = Split-Path -Parent $ScriptRoot
 # ---------------------------------------------------------------------------
 $ColorBlue      = [System.Drawing.Color]::FromArgb(33, 150, 243)   # #2196F3
 $ColorGreen     = [System.Drawing.Color]::FromArgb(76, 175, 80)    # #4CAF50
-$ColorGreenDark = [System.Drawing.Color]::FromArgb(56, 142, 60)    # darker green for hover
+$ColorGreenDark = [System.Drawing.Color]::FromArgb(56, 142, 60)    # darker green
 $ColorGray      = [System.Drawing.Color]::FromArgb(158, 158, 158)  # gray buttons
 $ColorLogBg     = [System.Drawing.Color]::FromArgb(18, 18, 18)     # near-black log bg
 $ColorLogFg     = [System.Drawing.Color]::FromArgb(204, 255, 204)  # light green log text
 $ColorWhite     = [System.Drawing.Color]::White
-$ColorLightGray = [System.Drawing.Color]::FromArgb(245, 245, 245)
+$ColorDimText   = [System.Drawing.Color]::FromArgb(120, 120, 120)  # dim description text
+$ColorDisabled  = [System.Drawing.Color]::FromArgb(200, 200, 200)  # disabled checkbox color
 
 $FontMain    = New-Object System.Drawing.Font("Microsoft YaHei UI", 10)
-$FontHeader  = New-Object System.Drawing.Font("Microsoft YaHei UI", 14, [System.Drawing.FontStyle]::Bold)
+$FontHeader  = New-Object System.Drawing.Font("Microsoft YaHei UI", 13, [System.Drawing.FontStyle]::Bold)
 $FontSub     = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
-$FontBadge   = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$FontDesc    = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
 $FontButton  = New-Object System.Drawing.Font("Microsoft YaHei UI", 11, [System.Drawing.FontStyle]::Bold)
 $FontLog     = New-Object System.Drawing.Font("Consolas", 9)
+$FontTime    = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 
 # ---------------------------------------------------------------------------
-# Main form
+# Test item durations (seconds)
+# ---------------------------------------------------------------------------
+$DurationDisk    = 60
+$DurationGpu     = 300
+$DurationVram    = 600
+$DurationCpu     = 600
+$DurationMemory  = 300
+$DurationThermal = 600
+
+# ---------------------------------------------------------------------------
+# Main form (fixed size, expanded when progress is shown)
 # ---------------------------------------------------------------------------
 $Form = New-Object System.Windows.Forms.Form
 $Form.Text            = "PC 验机工具 v2.0"
-$Form.Size            = New-Object System.Drawing.Size(600, 700)
+$Form.Size            = New-Object System.Drawing.Size(550, 680)
+$Form.MinimumSize     = New-Object System.Drawing.Size(550, 680)
 $Form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
 $Form.MaximizeBox     = $false
 $Form.StartPosition   = [System.Windows.Forms.FormStartPosition]::CenterScreen
@@ -75,28 +89,27 @@ $Form.BackColor       = $ColorWhite
 $Form.Font            = $FontMain
 
 # ---------------------------------------------------------------------------
-# 1. Header panel (blue, 70px)
+# 1. Header panel (blue, 55px)
 # ---------------------------------------------------------------------------
 $PanelHeader = New-Object System.Windows.Forms.Panel
-$PanelHeader.Dock      = [System.Windows.Forms.DockStyle]::None
 $PanelHeader.Location  = New-Object System.Drawing.Point(0, 0)
-$PanelHeader.Size      = New-Object System.Drawing.Size(600, 70)
+$PanelHeader.Size      = New-Object System.Drawing.Size(550, 55)
 $PanelHeader.BackColor = $ColorBlue
 
 $LabelTitle = New-Object System.Windows.Forms.Label
 $LabelTitle.Text      = "PC 验机工具 v2.0"
 $LabelTitle.Font      = $FontHeader
 $LabelTitle.ForeColor = $ColorWhite
-$LabelTitle.Location  = New-Object System.Drawing.Point(16, 8)
-$LabelTitle.Size      = New-Object System.Drawing.Size(568, 28)
+$LabelTitle.Location  = New-Object System.Drawing.Point(16, 6)
+$LabelTitle.Size      = New-Object System.Drawing.Size(520, 26)
 $LabelTitle.BackColor = [System.Drawing.Color]::Transparent
 
 $LabelSubtitle = New-Object System.Windows.Forms.Label
-$LabelSubtitle.Text      = "二手电脑交易验机  ·  安全开源  ·  不上传数据"
+$LabelSubtitle.Text      = "安全开源  ·  不联网  ·  不碰个人文件"
 $LabelSubtitle.Font      = $FontSub
 $LabelSubtitle.ForeColor = $ColorWhite
-$LabelSubtitle.Location  = New-Object System.Drawing.Point(18, 38)
-$LabelSubtitle.Size      = New-Object System.Drawing.Size(568, 20)
+$LabelSubtitle.Location  = New-Object System.Drawing.Point(18, 34)
+$LabelSubtitle.Size      = New-Object System.Drawing.Size(520, 16)
 $LabelSubtitle.BackColor = [System.Drawing.Color]::Transparent
 
 $PanelHeader.Controls.Add($LabelTitle)
@@ -104,143 +117,181 @@ $PanelHeader.Controls.Add($LabelSubtitle)
 $Form.Controls.Add($PanelHeader)
 
 # ---------------------------------------------------------------------------
-# 2. Safety badge (green banner)
+# 2. Checkbox GroupBox
 # ---------------------------------------------------------------------------
-$PanelBadge = New-Object System.Windows.Forms.Panel
-$PanelBadge.Location  = New-Object System.Drawing.Point(0, 70)
-$PanelBadge.Size      = New-Object System.Drawing.Size(600, 30)
-$PanelBadge.BackColor = $ColorGreen
-
-$LabelBadge = New-Object System.Windows.Forms.Label
-$LabelBadge.Text      = "√ 不联网  ·  不碰个人文件  ·  代码完全公开"
-$LabelBadge.Font      = $FontBadge
-$LabelBadge.ForeColor = $ColorWhite
-$LabelBadge.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$LabelBadge.Dock      = [System.Windows.Forms.DockStyle]::Fill
-$LabelBadge.BackColor = [System.Drawing.Color]::Transparent
-
-$PanelBadge.Controls.Add($LabelBadge)
-$Form.Controls.Add($PanelBadge)
+$GroupTests = New-Object System.Windows.Forms.GroupBox
+$GroupTests.Text     = "请勾选要运行的测试项目"
+$GroupTests.Location = New-Object System.Drawing.Point(16, 68)
+$GroupTests.Size     = New-Object System.Drawing.Size(516, 490)
+$GroupTests.Font     = $FontMain
+$Form.Controls.Add($GroupTests)
 
 # ---------------------------------------------------------------------------
-# 3. Mode selection GroupBox
+# Helper: create one checkbox row (checkbox + description label)
+# Returns @{ Checkbox = ...; Label = ... }
 # ---------------------------------------------------------------------------
-$GroupMode = New-Object System.Windows.Forms.GroupBox
-$GroupMode.Text     = "选择测试模式"
-$GroupMode.Location = New-Object System.Drawing.Point(16, 112)
-$GroupMode.Size     = New-Object System.Drawing.Size(564, 155)
-$GroupMode.Font     = $FontMain
+function New-TestRow {
+    param(
+        [System.Windows.Forms.GroupBox]$Parent,
+        [int]$TopY,
+        [string]$CheckText,
+        [string]$TimeHint,
+        [string]$Description,
+        [bool]$Checked = $false,
+        [bool]$Disabled = $false
+    )
 
-$RadioQuick = New-Object System.Windows.Forms.RadioButton
-$RadioQuick.Text     = "快速验机（约5分钟）— 系统信息 + 硬盘健康度"
-$RadioQuick.Location = New-Object System.Drawing.Point(12, 22)
-$RadioQuick.Size     = New-Object System.Drawing.Size(535, 24)
-$RadioQuick.Font     = $FontMain
+    # Checkbox line: "☑ 电脑基本信息    [必选] 约1分钟"
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Text     = $CheckText
+    $chk.Location = New-Object System.Drawing.Point(14, $TopY)
+    $chk.Size     = New-Object System.Drawing.Size(300, 22)
+    $chk.Font     = $FontMain
+    $chk.Checked  = $Checked
+    if ($Disabled) {
+        $chk.Enabled   = $false
+        $chk.ForeColor = $ColorDimText
+    }
 
-$RadioStandard = New-Object System.Windows.Forms.RadioButton
-$RadioStandard.Text     = "标准验机（约15分钟）★ 推荐  —  系统信息 + GPU压力测试 + 硬盘SMART"
-$RadioStandard.Location = New-Object System.Drawing.Point(12, 52)
-$RadioStandard.Size     = New-Object System.Drawing.Size(535, 24)
-$RadioStandard.Font     = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
-$RadioStandard.Checked  = $true   # default
+    # Right-aligned time hint
+    $lblTime = New-Object System.Windows.Forms.Label
+    $lblTime.Text      = $TimeHint
+    $lblTime.Font      = $FontDesc
+    $lblTime.ForeColor = $ColorDimText
+    $lblTime.Location  = New-Object System.Drawing.Point(320, ($TopY + 3))
+    $lblTime.Size      = New-Object System.Drawing.Size(180, 18)
+    $lblTime.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 
-$RadioFull = New-Object System.Windows.Forms.RadioButton
-$RadioFull.Text     = "完整验机（约30-40分钟）— 全部测试项目"
-$RadioFull.Location = New-Object System.Drawing.Point(12, 82)
-$RadioFull.Size     = New-Object System.Drawing.Size(535, 24)
-$RadioFull.Font     = $FontMain
+    # Description sub-line
+    $lblDesc = New-Object System.Windows.Forms.Label
+    $lblDesc.Text      = $Description
+    $lblDesc.Font      = $FontDesc
+    $lblDesc.ForeColor = $ColorDimText
+    $lblDesc.Location  = New-Object System.Drawing.Point(32, ($TopY + 22))
+    $lblDesc.Size      = New-Object System.Drawing.Size(468, 16)
 
-$RadioCustom = New-Object System.Windows.Forms.RadioButton
-$RadioCustom.Text     = "自定义 — 自选测试项目"
-$RadioCustom.Location = New-Object System.Drawing.Point(12, 112)
-$RadioCustom.Size     = New-Object System.Drawing.Size(535, 24)
-$RadioCustom.Font     = $FontMain
+    $Parent.Controls.Add($chk)
+    $Parent.Controls.Add($lblTime)
+    $Parent.Controls.Add($lblDesc)
 
-$GroupMode.Controls.AddRange(@($RadioQuick, $RadioStandard, $RadioFull, $RadioCustom))
-$Form.Controls.Add($GroupMode)
+    return @{ Checkbox = $chk; LabelTime = $lblTime; LabelDesc = $lblDesc }
+}
+
+# Separator line helper
+function Add-Separator {
+    param([System.Windows.Forms.GroupBox]$Parent, [int]$Y)
+    $sep = New-Object System.Windows.Forms.Label
+    $sep.Location  = New-Object System.Drawing.Point(14, $Y)
+    $sep.Size      = New-Object System.Drawing.Size(486, 1)
+    $sep.BackColor = [System.Drawing.Color]::FromArgb(220, 220, 220)
+    $Parent.Controls.Add($sep)
+}
+
+# Row layout: each row = 22px checkbox + 16px desc + 12px gap = 50px per item
+$rowHeight = 50
+$startY    = 22
+
+$rowSysInfo = New-TestRow -Parent $GroupTests -TopY $startY `
+    -CheckText "电脑基本信息" `
+    -TimeHint "[必选]  约1分钟" `
+    -Description "读取 CPU/显卡/内存/主板型号" `
+    -Checked $true -Disabled $true
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight - 3)
+
+$rowDisk = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight) `
+    -CheckText "硬盘健康度检查" `
+    -TimeHint "约1分钟" `
+    -Description "检查硬盘是否有坏道、用了多久、剩余寿命" `
+    -Checked $true
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight * 2 - 3)
+
+$rowGpu = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight * 2) `
+    -CheckText "显卡压力测试" `
+    -TimeHint "约5分钟" `
+    -Description "让显卡全力运行，测试是否稳定不崩溃" `
+    -Checked $false
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight * 3 - 3)
+
+$rowVram = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight * 3) `
+    -CheckText "显存测试" `
+    -TimeHint "约10分钟" `
+    -Description "测试显卡内存是否有坏点" `
+    -Checked $false
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight * 4 - 3)
+
+$rowCpu = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight * 4) `
+    -CheckText "CPU 压力测试" `
+    -TimeHint "约10分钟" `
+    -Description "让CPU全力运行，测温度和稳定性" `
+    -Checked $false
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight * 5 - 3)
+
+$rowMemory = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight * 5) `
+    -CheckText "内存稳定性测试" `
+    -TimeHint "约5分钟" `
+    -Description "测试内存条是否有错误" `
+    -Checked $false
+
+Add-Separator -Parent $GroupTests -Y ($startY + $rowHeight * 6 - 3)
+
+$rowThermal = New-TestRow -Parent $GroupTests -TopY ($startY + $rowHeight * 6) `
+    -CheckText "散热综合测试" `
+    -TimeHint "约10分钟" `
+    -Description "CPU和显卡同时满载，测试散热系统是否正常" `
+    -Checked $false
+
+# Shorthand references to checkboxes
+$chkDisk    = $rowDisk.Checkbox
+$chkGpu     = $rowGpu.Checkbox
+$chkVram    = $rowVram.Checkbox
+$chkCpu     = $rowCpu.Checkbox
+$chkMemory  = $rowMemory.Checkbox
+$chkThermal = $rowThermal.Checkbox
 
 # ---------------------------------------------------------------------------
-# 4. Custom options panel (hidden by default)
+# 3. Estimated time label
 # ---------------------------------------------------------------------------
-$GroupCustom = New-Object System.Windows.Forms.GroupBox
-$GroupCustom.Text     = "自定义测试项目"
-$GroupCustom.Location = New-Object System.Drawing.Point(16, 278)
-$GroupCustom.Size     = New-Object System.Drawing.Size(564, 175)
-$GroupCustom.Font     = $FontMain
-$GroupCustom.Visible  = $false
-
-$ChkFurmark = New-Object System.Windows.Forms.CheckBox
-$ChkFurmark.Text     = "GPU 压力测试 (FurMark, 5分钟)"
-$ChkFurmark.Location = New-Object System.Drawing.Point(12, 24)
-$ChkFurmark.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkFurmark.Checked  = $true
-
-$ChkVram = New-Object System.Windows.Forms.CheckBox
-$ChkVram.Text     = "VRAM 显存测试 (OCCT, 10分钟)"
-$ChkVram.Location = New-Object System.Drawing.Point(12, 50)
-$ChkVram.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkVram.Checked  = $true
-
-$ChkCpu = New-Object System.Windows.Forms.CheckBox
-$ChkCpu.Text     = "CPU 压力测试 (10分钟)"
-$ChkCpu.Location = New-Object System.Drawing.Point(12, 76)
-$ChkCpu.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkCpu.Checked  = $true
-
-$ChkMemory = New-Object System.Windows.Forms.CheckBox
-$ChkMemory.Text     = "内存稳定性测试 (5分钟)"
-$ChkMemory.Location = New-Object System.Drawing.Point(12, 102)
-$ChkMemory.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkMemory.Checked  = $true
-
-$ChkDisk = New-Object System.Windows.Forms.CheckBox
-$ChkDisk.Text     = "硬盘 SMART 健康度 (无需额外工具)"
-$ChkDisk.Location = New-Object System.Drawing.Point(12, 128)
-$ChkDisk.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkDisk.Checked  = $true
-
-$ChkThermal = New-Object System.Windows.Forms.CheckBox
-$ChkThermal.Text     = "散热综合评估 (CPU+GPU同时满载, 10分钟)"
-$ChkThermal.Location = New-Object System.Drawing.Point(12, 154)
-$ChkThermal.Size     = New-Object System.Drawing.Size(400, 22)
-$ChkThermal.Checked  = $true
-
-$GroupCustom.Controls.AddRange(@($ChkFurmark, $ChkVram, $ChkCpu, $ChkMemory, $ChkDisk, $ChkThermal))
-$Form.Controls.Add($GroupCustom)
+$LblTime = New-Object System.Windows.Forms.Label
+$LblTime.Text      = "预计总时长：约 2 分钟"
+$LblTime.Font      = $FontTime
+$LblTime.ForeColor = $ColorBlue
+$LblTime.Location  = New-Object System.Drawing.Point(16, 570)
+$LblTime.Size      = New-Object System.Drawing.Size(516, 22)
+$LblTime.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$Form.Controls.Add($LblTime)
 
 # ---------------------------------------------------------------------------
-# Helper: Y position for elements below mode/custom panels
-# ---------------------------------------------------------------------------
-$BaseY_Normal = 282    # GroupMode bottom (112+155+15)
-$BaseY_Custom = 465    # GroupCustom bottom (278+175+12)
-
-# ---------------------------------------------------------------------------
-# 5. Progress area (hidden initially)
+# 4. Progress area (initially hidden)
 # ---------------------------------------------------------------------------
 $PanelProgress = New-Object System.Windows.Forms.Panel
-$PanelProgress.Location = New-Object System.Drawing.Point(16, $BaseY_Normal)
-$PanelProgress.Size     = New-Object System.Drawing.Size(564, 180)
-$PanelProgress.Visible  = $false
+$PanelProgress.Location  = New-Object System.Drawing.Point(16, 600)
+$PanelProgress.Size      = New-Object System.Drawing.Size(516, 210)
+$PanelProgress.Visible   = $false
 $PanelProgress.BackColor = $ColorWhite
 
 $LabelStep = New-Object System.Windows.Forms.Label
 $LabelStep.Text      = "正在收集系统信息..."
 $LabelStep.Location  = New-Object System.Drawing.Point(0, 0)
-$LabelStep.Size      = New-Object System.Drawing.Size(564, 22)
+$LabelStep.Size      = New-Object System.Drawing.Size(516, 22)
 $LabelStep.Font      = $FontMain
 $LabelStep.ForeColor = [System.Drawing.Color]::FromArgb(33, 33, 33)
 
 $ProgressBar = New-Object System.Windows.Forms.ProgressBar
 $ProgressBar.Location = New-Object System.Drawing.Point(0, 26)
-$ProgressBar.Size     = New-Object System.Drawing.Size(564, 20)
+$ProgressBar.Size     = New-Object System.Drawing.Size(516, 18)
 $ProgressBar.Minimum  = 0
 $ProgressBar.Maximum  = 100
 $ProgressBar.Value    = 0
 $ProgressBar.Style    = [System.Windows.Forms.ProgressBarStyle]::Continuous
 
 $RichLog = New-Object System.Windows.Forms.RichTextBox
-$RichLog.Location    = New-Object System.Drawing.Point(0, 52)
-$RichLog.Size        = New-Object System.Drawing.Size(564, 128)
+$RichLog.Location    = New-Object System.Drawing.Point(0, 50)
+$RichLog.Size        = New-Object System.Drawing.Size(516, 160)
 $RichLog.ReadOnly    = $true
 $RichLog.BackColor   = $ColorLogBg
 $RichLog.ForeColor   = $ColorLogFg
@@ -252,36 +303,24 @@ $PanelProgress.Controls.AddRange(@($LabelStep, $ProgressBar, $RichLog))
 $Form.Controls.Add($PanelProgress)
 
 # ---------------------------------------------------------------------------
-# 6. Buttons
+# 5. Buttons
 # ---------------------------------------------------------------------------
 $BtnStart = New-Object System.Windows.Forms.Button
 $BtnStart.Text      = "开始验机"
-$BtnStart.Location  = New-Object System.Drawing.Point(180, 580)
-$BtnStart.Size      = New-Object System.Drawing.Size(220, 46)
+$BtnStart.Location  = New-Object System.Drawing.Point(170, 600)
+$BtnStart.Size      = New-Object System.Drawing.Size(200, 45)
 $BtnStart.Font      = $FontButton
 $BtnStart.BackColor = $ColorGreen
 $BtnStart.ForeColor = $ColorWhite
 $BtnStart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnStart.FlatAppearance.BorderSize  = 0
-$BtnStart.FlatAppearance.MouseOverBackColor = $ColorGreenDark
+$BtnStart.FlatAppearance.BorderSize          = 0
+$BtnStart.FlatAppearance.MouseOverBackColor  = $ColorGreenDark
 $BtnStart.Cursor    = [System.Windows.Forms.Cursors]::Hand
-
-$BtnOpenFolder = New-Object System.Windows.Forms.Button
-$BtnOpenFolder.Text      = "打开结果文件夹"
-$BtnOpenFolder.Location  = New-Object System.Drawing.Point(180, 532)
-$BtnOpenFolder.Size      = New-Object System.Drawing.Size(220, 36)
-$BtnOpenFolder.Font      = $FontMain
-$BtnOpenFolder.BackColor = $ColorBlue
-$BtnOpenFolder.ForeColor = $ColorWhite
-$BtnOpenFolder.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnOpenFolder.FlatAppearance.BorderSize = 0
-$BtnOpenFolder.Cursor    = [System.Windows.Forms.Cursors]::Hand
-$BtnOpenFolder.Visible   = $false
 
 $BtnExit = New-Object System.Windows.Forms.Button
 $BtnExit.Text      = "退出"
-$BtnExit.Location  = New-Object System.Drawing.Point(504, 580)
-$BtnExit.Size      = New-Object System.Drawing.Size(72, 46)
+$BtnExit.Location  = New-Object System.Drawing.Point(452, 600)
+$BtnExit.Size      = New-Object System.Drawing.Size(80, 45)
 $BtnExit.Font      = $FontMain
 $BtnExit.BackColor = $ColorGray
 $BtnExit.ForeColor = $ColorWhite
@@ -289,15 +328,64 @@ $BtnExit.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $BtnExit.FlatAppearance.BorderSize = 0
 $BtnExit.Cursor    = [System.Windows.Forms.Cursors]::Hand
 
-$Form.Controls.AddRange(@($BtnStart, $BtnOpenFolder, $BtnExit))
+$Form.Controls.AddRange(@($BtnStart, $BtnExit))
 
 # ---------------------------------------------------------------------------
-# State variable for output directory (set when tests start)
+# State
 # ---------------------------------------------------------------------------
 $Script:OutputDir = $null
 
 # ---------------------------------------------------------------------------
-# Helper: append text to the log box (thread-safe via Invoke)
+# Dynamic time calculation
+# ---------------------------------------------------------------------------
+function Update-TimeLabel {
+    $total = 60  # system info always included
+    if ($chkDisk.Checked)    { $total += $DurationDisk }
+    if ($chkGpu.Checked)     { $total += $DurationGpu }
+    if ($chkVram.Checked)    { $total += $DurationVram }
+    if ($chkCpu.Checked)     { $total += $DurationCpu }
+    if ($chkMemory.Checked)  { $total += $DurationMemory }
+    if ($chkThermal.Checked) { $total += $DurationThermal }
+
+    $minutes = [math]::Ceiling($total / 60)
+    $LblTime.Text = "预计总时长：约 $minutes 分钟"
+}
+
+# Wire checkboxes to time update
+$chkDisk.Add_CheckedChanged({ Update-TimeLabel })
+$chkGpu.Add_CheckedChanged({ Update-TimeLabel })
+$chkVram.Add_CheckedChanged({ Update-TimeLabel })
+$chkCpu.Add_CheckedChanged({ Update-TimeLabel })
+$chkMemory.Add_CheckedChanged({ Update-TimeLabel })
+$chkThermal.Add_CheckedChanged({ Update-TimeLabel })
+
+Update-TimeLabel
+
+# ---------------------------------------------------------------------------
+# Layout helper: reflow buttons and optionally expand form for progress area
+# ---------------------------------------------------------------------------
+function Update-Layout {
+    if ($PanelProgress.Visible) {
+        # Expanded: checkboxes + time label + progress area + buttons
+        $progressY  = 600
+        $buttonY    = $progressY + 220
+        $formHeight = $buttonY + 65
+
+        $PanelProgress.Location = New-Object System.Drawing.Point(16, $progressY)
+        $LblTime.Location       = New-Object System.Drawing.Point(16, 570)
+    } else {
+        $buttonY    = 600
+        $formHeight = 680
+        $LblTime.Location = New-Object System.Drawing.Point(16, 570)
+    }
+
+    $BtnStart.Location = New-Object System.Drawing.Point(170, $buttonY)
+    $BtnExit.Location  = New-Object System.Drawing.Point(452, $buttonY)
+    $Form.ClientSize   = New-Object System.Drawing.Size(550, ($buttonY + 60))
+}
+
+# ---------------------------------------------------------------------------
+# Thread-safe log helpers
 # ---------------------------------------------------------------------------
 function Append-Log {
     param([string]$Text)
@@ -313,124 +401,36 @@ function Append-Log {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Helper: update step label (thread-safe)
-# ---------------------------------------------------------------------------
 function Set-StepLabel {
     param([string]$Text)
     if ($LabelStep.InvokeRequired) {
-        $LabelStep.Invoke([Action[string]] {
-            param($t) $LabelStep.Text = $t
-        }, $Text)
+        $LabelStep.Invoke([Action[string]] { param($t) $LabelStep.Text = $t }, $Text)
     } else {
         $LabelStep.Text = $Text
     }
 }
 
-# ---------------------------------------------------------------------------
-# Helper: set progress bar value (thread-safe)
-# ---------------------------------------------------------------------------
 function Set-Progress {
     param([int]$Value)
     $clamped = [Math]::Max(0, [Math]::Min(100, $Value))
     if ($ProgressBar.InvokeRequired) {
-        $ProgressBar.Invoke([Action[int]] {
-            param($v) $ProgressBar.Value = $v
-        }, $clamped)
+        $ProgressBar.Invoke([Action[int]] { param($v) $ProgressBar.Value = $v }, $clamped)
     } else {
         $ProgressBar.Value = $clamped
     }
 }
 
 # ---------------------------------------------------------------------------
-# Show / hide custom panel and reflow progress area + buttons
-# ---------------------------------------------------------------------------
-function Update-Layout {
-    $showCustom = $RadioCustom.Checked
-
-    $GroupCustom.Visible = $showCustom
-
-    $progressY = if ($showCustom) { $BaseY_Custom } else { $BaseY_Normal }
-
-    $PanelProgress.Location = New-Object System.Drawing.Point(16, $progressY)
-
-    if ($PanelProgress.Visible) {
-        $buttonY        = $progressY + 180 + 12
-        $openFolderY    = $buttonY - 48
-        $newFormHeight  = $buttonY + 46 + 40
-    } else {
-        $buttonY        = $progressY + 12
-        $openFolderY    = $buttonY - 48
-        $newFormHeight  = $buttonY + 46 + 40
-    }
-
-    $BtnStart.Location      = New-Object System.Drawing.Point(180, $buttonY)
-    $BtnExit.Location       = New-Object System.Drawing.Point(504, $buttonY)
-    $BtnOpenFolder.Location = New-Object System.Drawing.Point(180, $openFolderY)
-    $Form.ClientSize        = New-Object System.Drawing.Size(600, ($newFormHeight))
-}
-
-# Wire up radio buttons to layout update
-$RadioCustom.Add_CheckedChanged({ Update-Layout })
-$RadioQuick.Add_CheckedChanged({ Update-Layout })
-$RadioStandard.Add_CheckedChanged({ Update-Layout })
-$RadioFull.Add_CheckedChanged({ Update-Layout })
-
-# Initial layout
-Update-Layout
-
-# ---------------------------------------------------------------------------
-# Build test flags from GUI selections
-# ---------------------------------------------------------------------------
-function Get-TestFlags {
-    $flags = @{
-        RunFurmark       = $false
-        RunOcctVram      = $false
-        RunCpuStress     = $false
-        RunMemoryTest    = $false
-        RunDiskHealth    = $false
-        RunThermalStress = $false
-        TestMode         = "standard"
-    }
-
-    if ($RadioQuick.Checked) {
-        $flags.RunDiskHealth = $true
-        $flags.TestMode      = "quick"
-    } elseif ($RadioStandard.Checked) {
-        $flags.RunFurmark    = $true
-        $flags.RunDiskHealth = $true
-        $flags.TestMode      = "standard"
-    } elseif ($RadioFull.Checked) {
-        $flags.RunFurmark       = $true
-        $flags.RunOcctVram      = $true
-        $flags.RunCpuStress     = $true
-        $flags.RunMemoryTest    = $true
-        $flags.RunDiskHealth    = $true
-        $flags.TestMode         = "full"
-    } elseif ($RadioCustom.Checked) {
-        $flags.RunFurmark       = $ChkFurmark.Checked
-        $flags.RunOcctVram      = $ChkVram.Checked
-        $flags.RunCpuStress     = $ChkCpu.Checked
-        $flags.RunMemoryTest    = $ChkMemory.Checked
-        $flags.RunDiskHealth    = $ChkDisk.Checked
-        $flags.RunThermalStress = $ChkThermal.Checked
-        $flags.TestMode         = "custom"
-    }
-    return $flags
-}
-
-# ---------------------------------------------------------------------------
-# Build -CustomTests string for run_windows.ps1
+# Build -CustomTests string from checked boxes
 # ---------------------------------------------------------------------------
 function Build-CustomTestsParam {
-    param($Flags)
     $parts = @()
-    if ($Flags.RunFurmark)       { $parts += "furmark" }
-    if ($Flags.RunOcctVram)      { $parts += "vram" }
-    if ($Flags.RunCpuStress)     { $parts += "cpu" }
-    if ($Flags.RunMemoryTest)    { $parts += "memory" }
-    if ($Flags.RunDiskHealth)    { $parts += "disk" }
-    if ($Flags.RunThermalStress) { $parts += "thermal" }
+    if ($chkDisk.Checked)    { $parts += "disk" }
+    if ($chkGpu.Checked)     { $parts += "furmark" }
+    if ($chkVram.Checked)    { $parts += "vram" }
+    if ($chkCpu.Checked)     { $parts += "cpu" }
+    if ($chkMemory.Checked)  { $parts += "memory" }
+    if ($chkThermal.Checked) { $parts += "thermal" }
     return ($parts -join ",")
 }
 
@@ -438,31 +438,22 @@ function Build-CustomTestsParam {
 # Background runspace — runs tests without freezing the GUI
 # ---------------------------------------------------------------------------
 function Start-TestsInBackground {
-    param($Flags)
+    param([string]$CustomTests)
 
     $runWindowsScript = Join-Path $ScriptRoot "run_windows.ps1"
 
-    # Shared data: the runspace writes to a synchronized queue,
-    # a timer on the main thread drains it into the log box.
     $queue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $Script:BgQueue = $queue
 
-    # Build arguments for run_windows.ps1
-    $customParam = Build-CustomTestsParam -Flags $Flags
-    $testMode    = $Flags.TestMode
-
-    # Create runspace
     $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
     $rs.ApartmentState = [System.Threading.ApartmentState]::STA
     $rs.ThreadOptions  = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
     $rs.Open()
 
-    # Pass variables into the runspace
     $rs.SessionStateProxy.SetVariable("RunWindowsScript", $runWindowsScript)
     $rs.SessionStateProxy.SetVariable("ScriptRootPath",   $ScriptRoot)
     $rs.SessionStateProxy.SetVariable("RepoRootPath",     $RepoRoot)
-    $rs.SessionStateProxy.SetVariable("TestMode",         $testMode)
-    $rs.SessionStateProxy.SetVariable("CustomTests",      $customParam)
+    $rs.SessionStateProxy.SetVariable("CustomTests",      $CustomTests)
     $rs.SessionStateProxy.SetVariable("LogQueue",         $queue)
 
     $ps = [System.Management.Automation.PowerShell]::Create()
@@ -472,29 +463,22 @@ function Start-TestsInBackground {
         $ErrorActionPreference = "Continue"
         Set-StrictMode -Off
 
-        function Queue-Log {
-            param([string]$msg)
-            $LogQueue.Enqueue($msg)
-        }
+        function Queue-Log { param([string]$msg) $LogQueue.Enqueue($msg) }
 
         Queue-Log "=== 开始验机 ==="
-        Queue-Log "脚本路径: $RunWindowsScript"
-        Queue-Log "测试模式: $TestMode"
-        if ($CustomTests) { Queue-Log "自定义项目: $CustomTests" }
+        if ($CustomTests) { Queue-Log "测试项目: $CustomTests" }
         Queue-Log ""
 
         try {
-            # Run the orchestrator with -NonInteractive
             $argList = @(
                 "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
-                "-File", $RunWindowsScript,
-                "-ScriptRoot", $ScriptRootPath,
-                "-NonInteractive",
-                "-TestMode", $TestMode
+                "-File", "`"$RunWindowsScript`"",
+                "-ScriptRoot", "`"$ScriptRootPath`"",
+                "-NonInteractive"
             )
             if ($CustomTests) {
-                $argList += @("-CustomTests", $CustomTests)
+                $argList += @("-CustomTests", "`"$CustomTests`"")
             }
 
             $proc = New-Object System.Diagnostics.Process
@@ -507,21 +491,16 @@ function Start-TestsInBackground {
             $proc.StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
             $proc.StartInfo.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
 
-            $outputSb  = [System.Text.StringBuilder]::new()
             $proc.Add_OutputDataReceived({
                 param($s, $e)
-                if ($null -ne $e.Data) {
-                    $LogQueue.Enqueue($e.Data)
-                }
+                if ($null -ne $e.Data) { $LogQueue.Enqueue($e.Data) }
             })
             $proc.Add_ErrorDataReceived({
                 param($s, $e)
-                if ($null -ne $e.Data) {
-                    $LogQueue.Enqueue("[STDERR] " + $e.Data)
-                }
+                if ($null -ne $e.Data) { $LogQueue.Enqueue("[STDERR] " + $e.Data) }
             })
 
-            $proc.Start() | Out-Null
+            $proc.Start()       | Out-Null
             $proc.BeginOutputReadLine()
             $proc.BeginErrorReadLine()
             $proc.WaitForExit()
@@ -536,7 +515,6 @@ function Start-TestsInBackground {
             Queue-Log "[ERROR] 启动测试脚本失败: $_"
         }
 
-        # Signal completion
         $LogQueue.Enqueue("__DONE__")
     }
 
@@ -548,30 +526,33 @@ function Start-TestsInBackground {
 }
 
 # ---------------------------------------------------------------------------
-# Timer: drain the queue into the log box + detect completion
+# Timer: drain queue → log box; detect completion
 # ---------------------------------------------------------------------------
 $Timer = New-Object System.Windows.Forms.Timer
-$Timer.Interval = 150   # poll every 150 ms
+$Timer.Interval = 150
 $Script:ProgressStep = 0
-$Script:TotalSteps   = 6
+$Script:TotalSteps   = 7
 
 $Timer.Add_Tick({
     if ($null -eq $Script:BgQueue) { return }
 
-    $item = $null
+    $item  = $null
     $count = 0
     while ($Script:BgQueue.TryDequeue([ref]$item) -and $count -lt 40) {
         $count++
+
         if ($item -eq "__DONE__") {
-            # Tests finished
             $Timer.Stop()
             Set-Progress 100
             Set-StepLabel "验机完成！"
-            $BtnStart.Enabled = $true
-            $BtnStart.Text    = "重新验机"
-            $BtnOpenFolder.Visible = $true
+            $Script:TestsCompleted = $true
 
-            # Locate the output directory from the transcript
+            $BtnStart.Enabled   = $true
+            $BtnStart.Text      = "打开结果文件夹"
+            $BtnStart.BackColor = $ColorBlue
+            $BtnStart.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+
+            # Locate output directory
             $outputBase = Join-Path $RepoRoot "output"
             if (Test-Path $outputBase) {
                 $latest = Get-ChildItem $outputBase -Directory |
@@ -584,31 +565,23 @@ $Timer.Add_Tick({
             continue
         }
 
-        # Update progress heuristically based on keywords
+        # Heuristic progress updates based on log content
         if ($item -match "系统信息收集") {
-            $Script:ProgressStep = 1
-            Set-StepLabel "正在收集系统信息..."
+            $Script:ProgressStep = 1; Set-StepLabel "正在收集系统信息..."
         } elseif ($item -match "GPU 压力测试|FurMark") {
-            $Script:ProgressStep = 2
-            Set-StepLabel "正在运行 GPU 压力测试..."
+            $Script:ProgressStep = 2; Set-StepLabel "正在运行显卡压力测试..."
         } elseif ($item -match "VRAM|OCCT") {
-            $Script:ProgressStep = 3
-            Set-StepLabel "正在运行 VRAM 显存测试..."
+            $Script:ProgressStep = 3; Set-StepLabel "正在运行显存测试..."
         } elseif ($item -match "CPU 压力") {
-            $Script:ProgressStep = 4
-            Set-StepLabel "正在运行 CPU 压力测试..."
+            $Script:ProgressStep = 4; Set-StepLabel "正在运行CPU压力测试..."
         } elseif ($item -match "内存稳定性") {
-            $Script:ProgressStep = 4
-            Set-StepLabel "正在运行内存稳定性测试..."
+            $Script:ProgressStep = 5; Set-StepLabel "正在运行内存稳定性测试..."
         } elseif ($item -match "硬盘 SMART|硬盘健康") {
-            $Script:ProgressStep = 5
-            Set-StepLabel "正在检查硬盘健康度..."
+            $Script:ProgressStep = 6; Set-StepLabel "正在检查硬盘健康度..."
         } elseif ($item -match "散热综合") {
-            $Script:ProgressStep = 5
-            Set-StepLabel "正在进行散热综合评估..."
+            $Script:ProgressStep = 6; Set-StepLabel "正在进行散热综合测试..."
         } elseif ($item -match "打包结果") {
-            $Script:ProgressStep = 6
-            Set-StepLabel "正在打包结果..."
+            $Script:ProgressStep = 7; Set-StepLabel "正在打包结果..."
         }
 
         $pct = [int](($Script:ProgressStep / $Script:TotalSteps) * 95)
@@ -618,17 +591,37 @@ $Timer.Add_Tick({
 })
 
 # ---------------------------------------------------------------------------
-# Button: Start
+# Button: Start / Open Folder (dual-mode after completion)
 # ---------------------------------------------------------------------------
-$BtnStart.Add_Click({
-    # Disable controls while running
-    $BtnStart.Enabled      = $false
-    $BtnStart.Text         = "验机中..."
-    $BtnOpenFolder.Visible = $false
-    $GroupMode.Enabled     = $false
-    $GroupCustom.Enabled   = $false
+$Script:TestsCompleted = $false
 
-    # Show progress area
+$BtnStart.Add_Click({
+    if ($Script:TestsCompleted) {
+        # Open results folder
+        if ($Script:OutputDir -and (Test-Path $Script:OutputDir)) {
+            Start-Process explorer.exe $Script:OutputDir
+        } else {
+            $outputBase = Join-Path $RepoRoot "output"
+            if (Test-Path $outputBase) {
+                Start-Process explorer.exe $outputBase
+            } else {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "找不到输出目录。请确认验机已完成。",
+                    "提示",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                )
+            }
+        }
+        return
+    }
+
+    # Disable controls while running
+    $BtnStart.Enabled    = $false
+    $BtnStart.Text       = "验机中..."
+    $GroupTests.Enabled  = $false
+
+    # Show progress area and reflow
     $PanelProgress.Visible = $true
     Update-Layout
 
@@ -636,34 +629,13 @@ $BtnStart.Add_Click({
     $RichLog.Clear()
     Set-Progress 0
     Set-StepLabel "正在初始化..."
-    $Script:ProgressStep = 0
-    $Script:OutputDir    = $null
+    $Script:ProgressStep   = 0
+    $Script:OutputDir      = $null
+    $Script:TestsCompleted = $false
 
-    $flags = Get-TestFlags
-    Start-TestsInBackground -Flags $flags
-
+    $customTests = Build-CustomTestsParam
+    Start-TestsInBackground -CustomTests $customTests
     $Timer.Start()
-})
-
-# ---------------------------------------------------------------------------
-# Button: Open folder
-# ---------------------------------------------------------------------------
-$BtnOpenFolder.Add_Click({
-    if ($Script:OutputDir -and (Test-Path $Script:OutputDir)) {
-        Start-Process explorer.exe $Script:OutputDir
-    } else {
-        $outputBase = Join-Path $RepoRoot "output"
-        if (Test-Path $outputBase) {
-            Start-Process explorer.exe $outputBase
-        } else {
-            [System.Windows.Forms.MessageBox]::Show(
-                "找不到输出目录。请确认验机已完成。",
-                "提示",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information
-            )
-        }
-    }
 })
 
 # ---------------------------------------------------------------------------
@@ -671,12 +643,8 @@ $BtnOpenFolder.Add_Click({
 # ---------------------------------------------------------------------------
 $BtnExit.Add_Click({
     $Timer.Stop()
-    if ($Script:BgPowerShell) {
-        try { $Script:BgPowerShell.Stop() } catch {}
-    }
-    if ($Script:BgRunspace) {
-        try { $Script:BgRunspace.Close() } catch {}
-    }
+    if ($Script:BgPowerShell) { try { $Script:BgPowerShell.Stop() } catch {} }
+    if ($Script:BgRunspace)   { try { $Script:BgRunspace.Close()  } catch {} }
     $Form.Close()
 })
 
@@ -685,13 +653,14 @@ $BtnExit.Add_Click({
 # ---------------------------------------------------------------------------
 $Form.Add_FormClosing({
     $Timer.Stop()
-    if ($Script:BgPowerShell) {
-        try { $Script:BgPowerShell.Stop() } catch {}
-    }
-    if ($Script:BgRunspace) {
-        try { $Script:BgRunspace.Close() } catch {}
-    }
+    if ($Script:BgPowerShell) { try { $Script:BgPowerShell.Stop() } catch {} }
+    if ($Script:BgRunspace)   { try { $Script:BgRunspace.Close()  } catch {} }
 })
+
+# ---------------------------------------------------------------------------
+# Initial layout
+# ---------------------------------------------------------------------------
+Update-Layout
 
 # ---------------------------------------------------------------------------
 # Run the GUI
