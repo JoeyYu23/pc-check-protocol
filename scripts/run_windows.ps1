@@ -1,17 +1,18 @@
 #Requires -Version 5.0
 <#
 .SYNOPSIS
-    GPU Check Protocol - Main Orchestrator
-    二手显卡验机工具主脚本
+    PC Check Protocol - Main Orchestrator
+    二手电脑验机工具主脚本
 
 .DESCRIPTION
-    Orchestrates the entire GPU verification workflow:
-    1. Create timestamped output directory
-    2. Collect system information
-    3. Check available tools
-    4. Start HWiNFO sensor logging
-    5. Run FurMark GPU stress test
-    6. Run OCCT VRAM test
+    Interactive menu to select test mode, then orchestrates the full PC
+    verification workflow:
+    1. Interactive mode selection (Quick / Standard / Full / Custom)
+    2. Create timestamped output directory
+    3. Collect system information
+    4. Check available tools
+    5. Start HWiNFO sensor logging
+    6. Run selected tests (GPU stress, VRAM, CPU stress, Memory, Disk SMART, Thermal)
     7. Stop HWiNFO logging
     8. Package results into zip
 
@@ -19,7 +20,7 @@
     It does NOT access personal files, upload data, or modify system settings.
 
 .NOTES
-    Author: gpu-check-protocol
+    Author: pc-check-protocol
     Requires: PowerShell 5.0+, Windows 10/11
 #>
 
@@ -44,30 +45,8 @@ if (-not (Test-Path $ConfigPath)) {
 }
 $Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-# Create timestamped output directory
-$Timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
-$OutputBase = Join-Path $RepoRoot $Config.output_dir
-$OutputDir  = Join-Path $OutputBase $Timestamp
-
-try {
-    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-} catch {
-    Write-Host "[ERROR] Cannot create output directory: $OutputDir" -ForegroundColor Red
-    exit 1
-}
-
 # ---------------------------------------------------------------------------
-# Start transcript
-# ---------------------------------------------------------------------------
-$TranscriptPath = Join-Path $OutputDir "session_transcript.log"
-try {
-    Start-Transcript -Path $TranscriptPath -Append | Out-Null
-} catch {
-    Write-Host "[WARN] Could not start transcript: $_" -ForegroundColor Yellow
-}
-
-# ---------------------------------------------------------------------------
-# Helper functions
+# Helper functions (defined early so menu can use Write-Log)
 # ---------------------------------------------------------------------------
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -91,21 +70,6 @@ function Write-Section {
     Write-Host ("=" * 60) -ForegroundColor DarkCyan
 }
 
-function Invoke-Script {
-    param([string]$ScriptPath, [hashtable]$Params = @{})
-    if (-not (Test-Path $ScriptPath)) {
-        Write-Log "Script not found: $ScriptPath" "ERROR"
-        return $false
-    }
-    try {
-        & $ScriptPath @Params
-        return $true
-    } catch {
-        Write-Log "Script failed [$ScriptPath]: $_" "ERROR"
-        return $false
-    }
-}
-
 # ---------------------------------------------------------------------------
 # Check admin privileges
 # ---------------------------------------------------------------------------
@@ -115,29 +79,170 @@ $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $IsAdmin) {
     Write-Log "Not running as Administrator. Some hardware readings may be limited." "WARN"
     Write-Log "For best results, right-click run_windows.bat and choose 'Run as Administrator'" "WARN"
+    Write-Host ""
 }
 
 # ---------------------------------------------------------------------------
-# Banner
+# Interactive menu
 # ---------------------------------------------------------------------------
+function Show-MainMenu {
+    Clear-Host
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host "   PC 验机工具 v2.0  (PC Check Protocol)" -ForegroundColor Cyan
+    Write-Host "   二手电脑交易验机 - 安全开源 不上传数据" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host ""
+    Write-Host "请选择测试模式:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  [1] 快速验机 (约5分钟)" -ForegroundColor Yellow
+    Write-Host "      - 系统信息收集 + 硬盘SMART健康度" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  [2] 标准验机 (约15分钟)  ★ 推荐" -ForegroundColor Green
+    Write-Host "      - 系统信息 + GPU压力测试 + 硬盘SMART" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  [3] 完整验机 (约30-40分钟)" -ForegroundColor Cyan
+    Write-Host "      - 系统信息 + GPU压力 + VRAM测试 + CPU压力 + 内存测试 + 硬盘SMART" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  [4] 自定义" -ForegroundColor Magenta
+    Write-Host "      - 自选测试项目" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  [0] 退出" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "请输入选项 (0-4): " -ForegroundColor White -NoNewline
+}
+
+function Show-CustomMenu {
+    Write-Host ""
+    Write-Host "自定义测试项目 (输入编号，多选用逗号分隔，如: 1,3,5):" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  [1] 系统信息收集        (必选，自动包含)" -ForegroundColor Gray
+    Write-Host "  [2] GPU 压力测试        (FurMark, 5分钟)" -ForegroundColor Yellow
+    Write-Host "  [3] VRAM 显存测试       (OCCT, 10分钟)" -ForegroundColor Yellow
+    Write-Host "  [4] CPU 压力测试        (OCCT CPU, 10分钟)" -ForegroundColor Cyan
+    Write-Host "  [5] 内存稳定性测试      (OCCT Memory, 5分钟)" -ForegroundColor Cyan
+    Write-Host "  [6] 硬盘 SMART 健康度   (无需额外工具)" -ForegroundColor Green
+    Write-Host "  [7] 散热综合评估        (CPU+GPU同时满载, 10分钟)" -ForegroundColor Magenta
+    Write-Host ""
+    Write-Host "请输入: " -ForegroundColor White -NoNewline
+}
+
+# Test flags: each boolean controls whether the test runs
+$RunFurmark       = $false
+$RunOcctVram      = $false
+$RunCpuStress     = $false
+$RunMemoryTest    = $false
+$RunDiskHealth    = $false
+$RunThermalStress = $false
+
+# Show menu and get user choice
+$MenuChoice = $null
+while ($null -eq $MenuChoice) {
+    Show-MainMenu
+    $input = Read-Host
+    switch ($input.Trim()) {
+        "0" {
+            Write-Host ""
+            Write-Host "已退出。" -ForegroundColor Gray
+            exit 0
+        }
+        "1" {
+            # Quick: system info + disk SMART
+            $RunDiskHealth    = $true
+            $MenuChoice       = "quick"
+        }
+        "2" {
+            # Standard (recommended): system info + GPU stress + disk SMART
+            $RunFurmark       = $true
+            $RunDiskHealth    = $true
+            $MenuChoice       = "standard"
+        }
+        "3" {
+            # Full: all tests
+            $RunFurmark       = $true
+            $RunOcctVram      = $true
+            $RunCpuStress     = $true
+            $RunMemoryTest    = $true
+            $RunDiskHealth    = $true
+            $MenuChoice       = "full"
+        }
+        "4" {
+            # Custom: user selects
+            Show-CustomMenu
+            $customInput = Read-Host
+            $selections = $customInput -split "," | ForEach-Object { $_.Trim() }
+            # Item 1 (system info) is always included
+            if ($selections -contains "2") { $RunFurmark       = $true }
+            if ($selections -contains "3") { $RunOcctVram      = $true }
+            if ($selections -contains "4") { $RunCpuStress     = $true }
+            if ($selections -contains "5") { $RunMemoryTest    = $true }
+            if ($selections -contains "6") { $RunDiskHealth    = $true }
+            if ($selections -contains "7") { $RunThermalStress = $true }
+            $MenuChoice = "custom"
+        }
+        default {
+            Write-Host ""
+            Write-Host "无效输入，请重新选择 (0-4)。" -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+
+# Summary of what will run
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor DarkCyan
-Write-Host "   GPU 验机工具 (GPU Check Protocol) v1.0" -ForegroundColor Cyan
-Write-Host "   二手显卡交易验机 - 安全开源 数据不离本机" -ForegroundColor Cyan
-Write-Host "   Output: $OutputDir" -ForegroundColor Gray
+Write-Host "  即将运行的测试项目:" -ForegroundColor Cyan
+Write-Host "  [必选] 系统信息收集" -ForegroundColor White
+if ($RunFurmark)       { Write-Host "  [选中] GPU 压力测试 (FurMark)"           -ForegroundColor Yellow }
+if ($RunOcctVram)      { Write-Host "  [选中] VRAM 显存测试 (OCCT)"             -ForegroundColor Yellow }
+if ($RunCpuStress)     { Write-Host "  [选中] CPU 压力测试 (OCCT CPU)"          -ForegroundColor Cyan }
+if ($RunMemoryTest)    { Write-Host "  [选中] 内存稳定性测试 (OCCT Memory)"     -ForegroundColor Cyan }
+if ($RunDiskHealth)    { Write-Host "  [选中] 硬盘 SMART 健康度"                -ForegroundColor Green }
+if ($RunThermalStress) { Write-Host "  [选中] 散热综合评估 (CPU+GPU 同时满载)"  -ForegroundColor Magenta }
 Write-Host "============================================================" -ForegroundColor DarkCyan
+Write-Host ""
+Write-Host "按 Enter 开始验机，或按 Ctrl+C 取消..." -ForegroundColor Gray
+$null = Read-Host
+
+# ---------------------------------------------------------------------------
+# Create timestamped output directory
+# ---------------------------------------------------------------------------
+$Timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
+$OutputBase = Join-Path $RepoRoot $Config.output_dir
+$OutputDir  = Join-Path $OutputBase $Timestamp
+
+try {
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+} catch {
+    Write-Host "[ERROR] Cannot create output directory: $OutputDir" -ForegroundColor Red
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Start transcript
+# ---------------------------------------------------------------------------
+$TranscriptPath = Join-Path $OutputDir "session_transcript.log"
+try {
+    Start-Transcript -Path $TranscriptPath -Append | Out-Null
+} catch {
+    Write-Host "[WARN] Could not start transcript: $_" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "  输出目录: $OutputDir" -ForegroundColor Gray
 Write-Host ""
 
 $SummaryLines = [System.Collections.Generic.List[string]]::new()
-$SummaryLines.Add("GPU Check Protocol - 验机报告摘要")
+$SummaryLines.Add("PC Check Protocol - 验机报告摘要")
+$SummaryLines.Add("模式: $MenuChoice")
 $SummaryLines.Add("生成时间: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
 $SummaryLines.Add("输出目录: $OutputDir")
 $SummaryLines.Add("")
 
 # ---------------------------------------------------------------------------
-# Step 1: Collect system info
+# Step 1: Collect system info (always runs)
 # ---------------------------------------------------------------------------
-Write-Section "步骤 1/5 - 收集系统信息"
+Write-Section "系统信息收集"
 $CollectScript = Join-Path $ScriptRoot "collect_system_info.ps1"
 try {
     & $CollectScript -OutputDir $OutputDir
@@ -151,12 +256,11 @@ try {
 # ---------------------------------------------------------------------------
 # Step 2: Check tools
 # ---------------------------------------------------------------------------
-Write-Section "步骤 2/5 - 检查工具"
+Write-Section "检查工具"
 $CheckScript = Join-Path $ScriptRoot "check_tools.ps1"
 $ToolStatus  = $null
 try {
     $ToolStatus = & $CheckScript -RepoRoot $RepoRoot
-    $SummaryLines.Add("")
     $SummaryLines.Add("工具检查结果:")
     foreach ($key in $ToolStatus.Keys) {
         $found = if ($ToolStatus[$key]) { "[找到]" } else { "[缺失]" }
@@ -167,11 +271,11 @@ try {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3: Screenshot before tests
+# Screenshot before tests
 # ---------------------------------------------------------------------------
+$ScreenshotScript = Join-Path $ScriptRoot "capture_screenshot.ps1"
 if ($Config.screenshot_before_after) {
     Write-Section "截图 - 测试前"
-    $ScreenshotScript = Join-Path $ScriptRoot "capture_screenshot.ps1"
     try {
         & $ScreenshotScript -OutputDir $OutputDir -Label "before_tests"
         Write-Log "测试前截图完成" "OK"
@@ -181,68 +285,120 @@ if ($Config.screenshot_before_after) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4a: Start HWiNFO logging
+# Start HWiNFO logging (if any sensor-dependent test is selected)
 # ---------------------------------------------------------------------------
-Write-Section "步骤 3/5 - 启动 HWiNFO 传感器记录"
-$HWInfoScript = Join-Path $ScriptRoot "run_hwinfo_logging.ps1"
+$NeedHWInfo    = $RunFurmark -or $RunOcctVram -or $RunCpuStress -or $RunThermalStress
+$HWInfoScript  = Join-Path $ScriptRoot "run_hwinfo_logging.ps1"
 $HWInfoStarted = $false
-if ($ToolStatus -and $ToolStatus["HWiNFO64"]) {
-    try {
-        . $HWInfoScript   # dot-source to get functions
-        Start-HWiNFOLogging -RepoRoot $RepoRoot -OutputDir $OutputDir
-        $HWInfoStarted = $true
-        Write-Log "HWiNFO 传感器记录已启动" "OK"
-        $SummaryLines.Add("")
-        $SummaryLines.Add("[OK] HWiNFO 传感器记录 - 已启动")
-    } catch {
-        Write-Log "HWiNFO 启动失败: $_" "WARN"
-        $SummaryLines.Add("[SKIP] HWiNFO 传感器记录 - 启动失败")
+
+if ($NeedHWInfo) {
+    Write-Section "启动 HWiNFO 传感器记录"
+    if ($ToolStatus -and $ToolStatus["HWiNFO64"]) {
+        try {
+            . $HWInfoScript
+            Start-HWiNFOLogging -RepoRoot $RepoRoot -OutputDir $OutputDir
+            $HWInfoStarted = $true
+            Write-Log "HWiNFO 传感器记录已启动" "OK"
+            $SummaryLines.Add("[OK] HWiNFO 传感器记录 - 已启动")
+        } catch {
+            Write-Log "HWiNFO 启动失败: $_" "WARN"
+            $SummaryLines.Add("[SKIP] HWiNFO 传感器记录 - 启动失败")
+        }
+    } else {
+        Write-Log "HWiNFO64 不存在，跳过传感器记录" "WARN"
+        $SummaryLines.Add("[SKIP] HWiNFO 传感器记录 - 工具未找到")
     }
-} else {
-    Write-Log "HWiNFO64 不存在，跳过传感器记录" "WARN"
-    $SummaryLines.Add("[SKIP] HWiNFO 传感器记录 - 工具未找到")
+    if ($HWInfoStarted) { Start-Sleep -Seconds 5 }
 }
 
-# Short wait for HWiNFO to initialize
-if ($HWInfoStarted) { Start-Sleep -Seconds 5 }
-
 # ---------------------------------------------------------------------------
-# Step 4b: FurMark GPU stress test
+# GPU stress test (FurMark)
 # ---------------------------------------------------------------------------
-Write-Section "步骤 4/5 - FurMark GPU 压力测试"
-$FurMarkResult = "SKIP"
-if ($Config.enable_furmark) {
+if ($RunFurmark) {
+    Write-Section "GPU 压力测试 (FurMark)"
     $FurMarkScript = Join-Path $ScriptRoot "run_furmark.ps1"
     try {
-        $FurMarkResult = & $FurMarkScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.furmark_duration_sec
-        $SummaryLines.Add("")
-        $SummaryLines.Add("[结果] FurMark: $FurMarkResult")
+        $result = & $FurMarkScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.furmark_duration_sec
+        $SummaryLines.Add("[结果] FurMark GPU压力: $result")
     } catch {
         Write-Log "FurMark 脚本异常: $_" "ERROR"
         $SummaryLines.Add("[FAIL] FurMark - 脚本异常")
     }
-} else {
-    Write-Log "FurMark 已在配置中禁用，跳过" "INFO"
-    $SummaryLines.Add("[SKIP] FurMark - 配置已禁用")
 }
 
 # ---------------------------------------------------------------------------
-# Step 4c: OCCT VRAM test
+# VRAM test (OCCT)
 # ---------------------------------------------------------------------------
-Write-Section "步骤 5/5 - OCCT VRAM 测试"
-$OcctResult = "SKIP"
-if ($Config.enable_occt) {
+if ($RunOcctVram) {
+    Write-Section "VRAM 显存测试 (OCCT)"
     $OcctScript = Join-Path $ScriptRoot "run_occt.ps1"
     try {
-        $OcctResult = & $OcctScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_vram_duration_sec
-        $SummaryLines.Add("[结果] OCCT VRAM: $OcctResult")
+        $result = & $OcctScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_vram_duration_sec
+        $SummaryLines.Add("[结果] OCCT VRAM: $result")
     } catch {
-        Write-Log "OCCT 脚本异常: $_" "ERROR"
-        $SummaryLines.Add("[FAIL] OCCT - 脚本异常")
+        Write-Log "OCCT VRAM 脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] OCCT VRAM - 脚本异常")
     }
-} else {
-    Write-Log "OCCT 已在配置中禁用，跳过" "INFO"
-    $SummaryLines.Add("[SKIP] OCCT - 配置已禁用")
+}
+
+# ---------------------------------------------------------------------------
+# CPU stress test
+# ---------------------------------------------------------------------------
+if ($RunCpuStress) {
+    Write-Section "CPU 压力测试"
+    $CpuStressScript = Join-Path $ScriptRoot "run_cpu_stress.ps1"
+    try {
+        $result = & $CpuStressScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_cpu_duration_sec
+        $SummaryLines.Add("[结果] CPU压力测试: $result")
+    } catch {
+        Write-Log "CPU压力测试脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] CPU压力测试 - 脚本异常")
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Memory stability test
+# ---------------------------------------------------------------------------
+if ($RunMemoryTest) {
+    Write-Section "内存稳定性测试"
+    $MemTestScript = Join-Path $ScriptRoot "run_memory_test.ps1"
+    try {
+        $result = & $MemTestScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.occt_memory_duration_sec
+        $SummaryLines.Add("[结果] 内存测试: $result")
+    } catch {
+        Write-Log "内存测试脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] 内存测试 - 脚本异常")
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Disk SMART health check
+# ---------------------------------------------------------------------------
+if ($RunDiskHealth) {
+    Write-Section "硬盘 SMART 健康度检查"
+    $DiskHealthScript = Join-Path $ScriptRoot "check_disk_health.ps1"
+    try {
+        $result = & $DiskHealthScript -RepoRoot $RepoRoot -OutputDir $OutputDir
+        $SummaryLines.Add("[结果] 硬盘健康检查: $result")
+    } catch {
+        Write-Log "硬盘健康检查脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] 硬盘健康检查 - 脚本异常")
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Thermal stress test (CPU + GPU simultaneous)
+# ---------------------------------------------------------------------------
+if ($RunThermalStress) {
+    Write-Section "散热综合评估 (CPU+GPU 同时满载)"
+    $ThermalScript = Join-Path $ScriptRoot "run_thermal_stress.ps1"
+    try {
+        $result = & $ThermalScript -RepoRoot $RepoRoot -OutputDir $OutputDir -DurationSec $Config.thermal_stress_duration_sec
+        $SummaryLines.Add("[结果] 散热综合评估: $result")
+    } catch {
+        Write-Log "散热评估脚本异常: $_" "ERROR"
+        $SummaryLines.Add("[FAIL] 散热综合评估 - 脚本异常")
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -301,7 +457,7 @@ Write-Host "============================================================" -Foreg
 Write-Host "  验机完成！" -ForegroundColor Green
 Write-Host "  结果目录: $OutputDir" -ForegroundColor White
 if ($Config.zip_results) {
-    $ZipPath = Join-Path $OutputBase "gpu_check_$Timestamp.zip"
+    $ZipPath = Join-Path $OutputBase "pc_check_$Timestamp.zip"
     Write-Host "  压缩包:   $ZipPath" -ForegroundColor White
 }
 Write-Host "  请将上述文件发送给买家核验" -ForegroundColor Yellow

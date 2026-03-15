@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title GPU验机工具 - GPU Check Protocol
+title PC验机工具 - PC Check Protocol
 
 echo ============================================================
-echo    GPU 验机工具 v1.0  (GPU Check Protocol)
-echo    二手显卡交易验机 - 安全开源 不上传数据
+echo    PC 验机工具 v2.0  (PC Check Protocol)
+echo    二手电脑交易验机 - 安全开源 不上传数据
 echo ============================================================
 echo.
 echo 正在启动验机程序，请稍候...
